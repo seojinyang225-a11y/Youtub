@@ -5,3 +5,4 @@ wordcloud
 google-api-python-client
 konlpy
 numpy
+plotly
