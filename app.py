@@ -1,252 +1,221 @@
+import re
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 from collections import Counter
-from googleapiclient.discovery import build
+from youtube_comment_downloader import YoutubeCommentDownloader
 from konlpy.tag import Okt
-import matplotlib.pyplot as plt
-import re
 
-# ------------------
-# 페이지 설정
-# ------------------
 st.set_page_config(
-    page_title="유튜브 댓글 분석기",
+    page_title="YouTube 댓글 분석기",
     layout="wide"
 )
 
-st.title("📺 유튜브 댓글 분석기")
-st.write("유튜브 링크를 입력하면 댓글을 분석합니다.")
+st.title("📺 YouTube 댓글 분석기")
+st.write("유튜브 영상 링크를 입력하면 댓글을 수집하고 분석합니다.")
 
-# ------------------
-# API KEY
-# ------------------
-api_key = st.secrets["YOUTUBE_API_KEY"]
-
-# ------------------
-# 입력
-# ------------------
-video_url = st.text_input(
-    "유튜브 영상 링크"
-)
-
-comment_count = st.slider(
-    "수집할 댓글 수",
-    20,
-    10000,
-    200,
-    step=20
-)
-
-# ------------------
-# 영상 ID 추출
-# ------------------
+# ------------------------
+# 유튜브 링크에서 video_id 추출
+# ------------------------
 def extract_video_id(url):
-
     patterns = [
-        r"v=([a-zA-Z0-9_-]+)",
-        r"youtu\.be/([a-zA-Z0-9_-]+)"
+        r"v=([a-zA-Z0-9_-]{11})",
+        r"youtu\.be/([a-zA-Z0-9_-]{11})"
     ]
-
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-
     return None
 
-# ------------------
+# ------------------------
 # 댓글 수집
-# ------------------
-def get_comments(
-    api_key,
-    video_id,
-    max_comments
-):
+# ------------------------
+@st.cache_data(show_spinner=False)
+def get_comments(video_url, limit):
+    downloader = YoutubeCommentDownloader()
+    comments = downloader.get_comments_from_url(video_url)
 
-    youtube = build(
-        "youtube",
-        "v3",
-        developerKey=api_key
-    )
+    data = []
 
-    comments = []
+    for i, comment in enumerate(comments):
+        if i >= limit:
+            break
 
-    request = youtube.commentThreads().list(
-        part="snippet",
-        videoId=video_id,
-        maxResults=100,
-        textFormat="plainText"
-    )
+        data.append({
+            "author": comment.get("author"),
+            "text": comment.get("text"),
+            "likes": comment.get("votes", 0),
+            "time": comment.get("time")
+        })
 
-    while request and len(comments) < max_comments:
+    return pd.DataFrame(data)
 
-        response = request.execute()
+# ------------------------
+# 시간 문자열 → 숫자 변환
+# ------------------------
+def parse_time_column(df):
+    hours = []
 
-        for item in response["items"]:
+    for t in df["time"]:
+        t = str(t)
 
-            snippet = item["snippet"]["topLevelComment"]["snippet"]
+        if "hour" in t:
+            num = int(re.findall(r"\d+", t)[0])
+            hours.append(num)
 
-            comments.append({
-                "comment": snippet["textDisplay"],
-                "likes": snippet["likeCount"],
-                "publishedAt": snippet["publishedAt"]
-            })
+        elif "minute" in t:
+            hours.append(0)
 
-            if len(comments) >= max_comments:
-                break
+        elif "day" in t:
+            num = int(re.findall(r"\d+", t)[0])
+            hours.append(num * 24)
 
-        request = youtube.commentThreads().list_next(
-            request,
-            response
-        )
+        else:
+            hours.append(None)
 
-    return pd.DataFrame(comments)
+    df["hours_ago"] = hours
+    return df
 
-# ------------------
-# 워드클라우드
-# ------------------
-def create_wordcloud(texts):
-
+# ------------------------
+# 워드 추출
+# ------------------------
+def extract_words(texts):
     okt = Okt()
 
     nouns = []
 
+    stopwords = {
+        "영상", "진짜", "너무", "정말", "ㅋㅋ", "ㅎㅎ",
+        "이거", "그냥", "있어요", "합니다"
+    }
+
     for text in texts:
-        nouns.extend(
-            okt.nouns(str(text))
-        )
+        words = okt.nouns(str(text))
 
-    nouns = [
-        word for word in nouns
-        if len(word) >= 2
-    ]
+        for word in words:
+            if len(word) >= 2 and word not in stopwords:
+                nouns.append(word)
 
-    count = Counter(nouns)
+    return nouns
 
-    wc = WordCloud(
-        font_path="fonts/NanumGothic.ttf",
-        background_color="white",
-        width=1200,
-        height=600
-    )
+# ------------------------
+# 입력 UI
+# ------------------------
+url = st.text_input("🔗 유튜브 영상 링크")
 
-    return wc.generate_from_frequencies(count)
+limit = st.slider(
+    "댓글 수 선택",
+    min_value=20,
+    max_value=10000,
+    value=500,
+    step=20
+)
 
-# ------------------
-# 버튼
-# ------------------
+# ------------------------
+# 분석 시작
+# ------------------------
 if st.button("댓글 분석 시작"):
 
-    video_id = extract_video_id(video_url)
+    if not url:
+        st.warning("유튜브 링크를 입력하세요.")
+        st.stop()
+
+    video_id = extract_video_id(url)
 
     if not video_id:
-        st.error("올바른 유튜브 링크를 입력해주세요.")
+        st.error("올바른 유튜브 링크가 아닙니다.")
         st.stop()
 
     with st.spinner("댓글 수집 중..."):
-
-        df = get_comments(
-            api_key,
-            video_id,
-            comment_count
-        )
+        df = get_comments(url, limit)
 
     if df.empty:
-        st.warning("댓글이 없습니다.")
+        st.error("댓글을 가져오지 못했습니다.")
         st.stop()
 
-    df["publishedAt"] = pd.to_datetime(
-        df["publishedAt"]
+    st.success(f"{len(df)}개 댓글 수집 완료")
+
+    # ------------------------
+    # 데이터 미리보기
+    # ------------------------
+    with st.expander("댓글 데이터 보기"):
+        st.dataframe(df)
+
+    # ------------------------
+    # 시간 분석
+    # ------------------------
+    st.subheader("🕒 시간대별 댓글 추이")
+
+    df = parse_time_column(df)
+
+    time_df = (
+        df["hours_ago"]
+        .dropna()
+        .value_counts()
+        .reset_index()
     )
 
-    df["hour"] = df["publishedAt"].dt.hour
+    time_df.columns = ["hours_ago", "count"]
 
-    st.success(
-        f"{len(df)}개 댓글 수집 완료"
-    )
-
-    # ------------------
-    # 시간대별
-    # ------------------
-    st.subheader("⏰ 시간대별 댓글 추이")
-
-    hourly = (
-        df.groupby("hour")
-        .size()
-        .reset_index(name="count")
-    )
-
-    fig1 = px.line(
-        hourly,
-        x="hour",
+    fig_time = px.bar(
+        time_df.sort_values("hours_ago"),
+        x="hours_ago",
         y="count",
-        markers=True
+        labels={
+            "hours_ago": "몇 시간 전",
+            "count": "댓글 수"
+        }
     )
 
-    st.plotly_chart(
-        fig1,
-        use_container_width=True
-    )
+    st.plotly_chart(fig_time, use_container_width=True)
 
-    # ------------------
+    # ------------------------
     # 좋아요 분석
-    # ------------------
-    st.subheader("👍 좋아요 수 분석")
+    # ------------------------
+    st.subheader("👍 댓글 좋아요 수 분석")
 
-    fig2 = px.histogram(
+    fig_likes = px.histogram(
         df,
-        x="likes"
+        x="likes",
+        nbins=30,
+        labels={"likes": "좋아요 수"}
     )
 
-    st.plotly_chart(
-        fig2,
-        use_container_width=True
+    st.plotly_chart(fig_likes, use_container_width=True)
+
+    top_comments = (
+        df.sort_values("likes", ascending=False)
+        .head(10)
     )
 
-    col1, col2 = st.columns(2)
+    st.write("🔥 좋아요 많은 댓글 TOP 10")
+    st.dataframe(top_comments[["author", "likes", "text"]])
 
-    with col1:
-        st.metric(
-            "평균 좋아요",
-            round(df["likes"].mean(), 2)
-        )
-
-    with col2:
-        st.metric(
-            "최대 좋아요",
-            int(df["likes"].max())
-        )
-
-    # ------------------
+    # ------------------------
     # 워드클라우드
-    # ------------------
-    st.subheader("☁️ 자주 등장한 단어")
+    # ------------------------
+    st.subheader("☁️ 자주 등장하는 단어")
 
-    wc = create_wordcloud(
-        df["comment"]
-    )
+    words = extract_words(df["text"])
 
-    fig3, ax = plt.subplots(
-        figsize=(14, 7)
-    )
+    if words:
+        freq = Counter(words)
 
-    ax.imshow(wc)
-    ax.axis("off")
+        wordcloud = WordCloud(
+            font_path="NanumGothic.ttf",
+            width=1000,
+            height=500,
+            background_color="white"
+        ).generate_from_frequencies(freq)
 
-    st.pyplot(fig3)
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.imshow(wordcloud)
+        ax.axis("off")
 
-    # ------------------
-    # CSV 다운로드
-    # ------------------
-    csv = df.to_csv(
-        index=False
-    ).encode("utf-8-sig")
+        st.pyplot(fig)
 
-    st.download_button(
-        "CSV 다운로드",
-        csv,
-        "comments.csv",
-        "text/csv"
-    )
+    else:
+        st.info("워드클라우드를 만들 단어가 없습니다.")
