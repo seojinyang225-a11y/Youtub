@@ -4,4 +4,3 @@ plotly
 matplotlib
 wordcloud
 youtube-comment-downloader
-konlpy
