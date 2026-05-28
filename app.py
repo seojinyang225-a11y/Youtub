@@ -1,4 +1,5 @@
 import re
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -19,7 +20,7 @@ st.title("📺 YouTube 댓글 분석기")
 st.write("유튜브 링크를 입력하면 댓글을 수집하고 분석합니다.")
 
 # ------------------------
-# 유튜브 링크에서 ID 추출
+# 유튜브 링크 ID 추출
 # ------------------------
 def extract_video_id(url):
     patterns = [
@@ -58,7 +59,7 @@ def get_comments(video_url, limit):
     return pd.DataFrame(data)
 
 # ------------------------
-# 시간 문자열 변환
+# 시간 문자열 숫자로 변환
 # ------------------------
 def parse_time_column(df):
     hours = []
@@ -84,7 +85,7 @@ def parse_time_column(df):
     return df
 
 # ------------------------
-# 단어 추출
+# 한글 단어 추출
 # ------------------------
 def extract_words(texts):
     words = []
@@ -98,7 +99,6 @@ def extract_words(texts):
     for text in texts:
         text = str(text)
 
-        # 한글 2글자 이상
         tokens = re.findall(r"[가-힣]{2,}", text)
 
         for word in tokens:
@@ -121,7 +121,7 @@ limit = st.slider(
 )
 
 # ------------------------
-# 분석 버튼
+# 분석 시작
 # ------------------------
 if st.button("댓글 분석 시작"):
 
@@ -139,7 +139,7 @@ if st.button("댓글 분석 시작"):
         df = get_comments(url, limit)
 
     if df.empty:
-        st.error("댓글을 불러오지 못했습니다.")
+        st.error("댓글을 가져오지 못했습니다.")
         st.stop()
 
     st.success(f"{len(df)}개 댓글 수집 완료!")
@@ -212,11 +212,16 @@ if st.button("댓글 분석 시작"):
     words = extract_words(df["text"])
 
     if words:
-
         freq = Counter(words)
 
+        # 폰트 자동 확인
+        font_path = None
+
+        if os.path.exists("NanumGothic.ttf"):
+            font_path = "NanumGothic.ttf"
+
         wordcloud = WordCloud(
-            font_path="NanumGothic.ttf",
+            font_path=font_path,
             width=1000,
             height=500,
             background_color="white"
@@ -227,6 +232,11 @@ if st.button("댓글 분석 시작"):
         ax.axis("off")
 
         st.pyplot(fig)
+
+        if font_path is None:
+            st.info(
+                "NanumGothic.ttf 파일이 없어서 한글이 일부 깨질 수 있습니다."
+            )
 
     else:
         st.info("표시할 단어가 없습니다.")
