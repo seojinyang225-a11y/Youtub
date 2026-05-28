@@ -6,28 +6,32 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 from collections import Counter
 from youtube_comment_downloader import YoutubeCommentDownloader
-from konlpy.tag import Okt
 
+# ------------------------
+# 기본 설정
+# ------------------------
 st.set_page_config(
     page_title="YouTube 댓글 분석기",
     layout="wide"
 )
 
 st.title("📺 YouTube 댓글 분석기")
-st.write("유튜브 영상 링크를 입력하면 댓글을 수집하고 분석합니다.")
+st.write("유튜브 링크를 입력하면 댓글을 수집하고 분석합니다.")
 
 # ------------------------
-# 유튜브 링크에서 video_id 추출
+# 유튜브 링크에서 ID 추출
 # ------------------------
 def extract_video_id(url):
     patterns = [
         r"v=([a-zA-Z0-9_-]{11})",
         r"youtu\.be/([a-zA-Z0-9_-]{11})"
     ]
+
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
+
     return None
 
 # ------------------------
@@ -54,7 +58,7 @@ def get_comments(video_url, limit):
     return pd.DataFrame(data)
 
 # ------------------------
-# 시간 문자열 → 숫자 변환
+# 시간 문자열 변환
 # ------------------------
 def parse_time_column(df):
     hours = []
@@ -80,31 +84,33 @@ def parse_time_column(df):
     return df
 
 # ------------------------
-# 워드 추출
+# 단어 추출
 # ------------------------
 def extract_words(texts):
-    okt = Okt()
-
-    nouns = []
+    words = []
 
     stopwords = {
-        "영상", "진짜", "너무", "정말", "ㅋㅋ", "ㅎㅎ",
-        "이거", "그냥", "있어요", "합니다"
+        "영상", "진짜", "너무", "정말",
+        "이거", "그냥", "있어요", "합니다",
+        "오늘", "제가", "ㅋㅋ", "ㅎㅎ"
     }
 
     for text in texts:
-        words = okt.nouns(str(text))
+        text = str(text)
 
-        for word in words:
-            if len(word) >= 2 and word not in stopwords:
-                nouns.append(word)
+        # 한글 2글자 이상
+        tokens = re.findall(r"[가-힣]{2,}", text)
 
-    return nouns
+        for word in tokens:
+            if word not in stopwords:
+                words.append(word)
+
+    return words
 
 # ------------------------
 # 입력 UI
 # ------------------------
-url = st.text_input("🔗 유튜브 영상 링크")
+url = st.text_input("🔗 유튜브 영상 링크 입력")
 
 limit = st.slider(
     "댓글 수 선택",
@@ -115,7 +121,7 @@ limit = st.slider(
 )
 
 # ------------------------
-# 분석 시작
+# 분석 버튼
 # ------------------------
 if st.button("댓글 분석 시작"):
 
@@ -133,19 +139,19 @@ if st.button("댓글 분석 시작"):
         df = get_comments(url, limit)
 
     if df.empty:
-        st.error("댓글을 가져오지 못했습니다.")
+        st.error("댓글을 불러오지 못했습니다.")
         st.stop()
 
-    st.success(f"{len(df)}개 댓글 수집 완료")
+    st.success(f"{len(df)}개 댓글 수집 완료!")
 
     # ------------------------
-    # 데이터 미리보기
+    # 데이터 보기
     # ------------------------
     with st.expander("댓글 데이터 보기"):
         st.dataframe(df)
 
     # ------------------------
-    # 시간 분석
+    # 시간대별 댓글 추이
     # ------------------------
     st.subheader("🕒 시간대별 댓글 추이")
 
@@ -180,19 +186,23 @@ if st.button("댓글 분석 시작"):
     fig_likes = px.histogram(
         df,
         x="likes",
-        nbins=30,
-        labels={"likes": "좋아요 수"}
+        nbins=30
     )
 
     st.plotly_chart(fig_likes, use_container_width=True)
+
+    st.write("🔥 좋아요 많은 댓글 TOP 10")
 
     top_comments = (
         df.sort_values("likes", ascending=False)
         .head(10)
     )
 
-    st.write("🔥 좋아요 많은 댓글 TOP 10")
-    st.dataframe(top_comments[["author", "likes", "text"]])
+    st.dataframe(
+        top_comments[
+            ["author", "likes", "text"]
+        ]
+    )
 
     # ------------------------
     # 워드클라우드
@@ -202,6 +212,7 @@ if st.button("댓글 분석 시작"):
     words = extract_words(df["text"])
 
     if words:
+
         freq = Counter(words)
 
         wordcloud = WordCloud(
@@ -218,4 +229,4 @@ if st.button("댓글 분석 시작"):
         st.pyplot(fig)
 
     else:
-        st.info("워드클라우드를 만들 단어가 없습니다.")
+        st.info("표시할 단어가 없습니다.")
