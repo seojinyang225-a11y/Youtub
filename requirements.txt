@@ -1,8 +1,7 @@
 streamlit
 pandas
+plotly
 matplotlib
 wordcloud
-google-api-python-client
+youtube-comment-downloader
 konlpy
-numpy
-plotly
