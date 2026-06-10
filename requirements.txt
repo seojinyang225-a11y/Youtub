@@ -4,3 +4,4 @@ plotly
 matplotlib
 wordcloud
 youtube-comment-downloader
+google-api-python-client
