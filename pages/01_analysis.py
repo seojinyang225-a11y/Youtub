@@ -145,22 +145,45 @@ if st.button("분석 시작"):
 
         low, high = estimate_revenue(avg_views)
 
-        st.subheader("예상 수익")
+        # 환율 (예시: 1달러 = 1,350원)
+USD_TO_KRW = 1350
 
-        st.success(
-            f"""
-            예상 월수익
-            ${low:,.0f} ~ ${high:,.0f}
-            """
-        )
+# 월 예상 수익 (달러)
+low_month_usd = low
+high_month_usd = high
 
-        st.info(
-            f"""
-            예상 연수익
-            ${low*12:,.0f} ~ ${high*12:,.0f}
-            """
-        )
+# 연 예상 수익 (달러)
+low_year_usd = low * 12
+high_year_usd = high * 12
 
+# 원화 변환
+low_month_krw = low_month_usd * USD_TO_KRW
+high_month_krw = high_month_usd * USD_TO_KRW
+
+low_year_krw = low_year_usd * USD_TO_KRW
+high_year_krw = high_year_usd * USD_TO_KRW
+
+st.subheader("💰 예상 광고 수익")
+
+st.success(f"""
+### 📅 월 예상 수익
+
+💵 ${low_month_usd:,.0f} ~ ${high_month_usd:,.0f}
+
+🇰🇷 ₩{low_month_krw:,.0f}
+~
+₩{high_month_krw:,.0f}
+""")
+
+st.info(f"""
+### 📆 연 예상 수익
+
+💵 ${low_year_usd:,.0f} ~ ${high_year_usd:,.0f}
+
+🇰🇷 ₩{low_year_krw:,.0f}
+~
+₩{high_year_krw:,.0f}
+""")
         fig = px.bar(
             df,
             x="제목",
